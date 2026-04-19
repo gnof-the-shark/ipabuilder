@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA to IPA Builder</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f0f2f5; color: #333; }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); width: 100%; max-width: 450px; }
+        h2 { margin-top: 0; color: #1877f2; text-align: center; }
+        label { display: block; margin-top: 15px; font-weight: bold; font-size: 0.9em; }
+        input { width: 100%; margin-bottom: 1rem; padding: 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        button { width: 100%; padding: 14px; background: #1877f2; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; transition: 0.3s; }
+        button:hover { background: #145dbf; }
+        
+        .build-item { background: #fff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 5px solid #ffc107; box-shadow: 0 2px 4px rgba(0,0,0,0.05); width: 100%; max-width: 450px; }
+        .progress-bar { height: 12px; background: #eee; border-radius: 6px; margin: 12px 0; overflow: hidden; }
+        .progress-fill { height: 100%; background: #28a745; width: 0%; transition: width 0.8s ease-in-out; }
+        .timer { font-weight: bold; color: #dc3545; font-size: 0.95em; }
+        .status-completed { border-left-color: #28a745 !important; }
+        a { color: #1877f2; text-decoration: none; font-weight: bold; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>PWA → IPA</h2>
+        <label>URL de la PWA :</label>
+        <input type="text" id="url" placeholder="https://votre-site.com">
+        
+        <label>GitHub Personal Access Token :</label>
+        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx">
+        
+        <button onclick="buildApp()">Lancer la compilation</button>
+        <p id="status" style="text-align:center; font-size:0.8em; color: #666; margin-top:10px;">Le build prend environ 6 minutes.</p>
+    </div>
+
+    <div id="builds-container" style="width: 100%; max-width: 450px; margin-top: 20px;">
+        </div>
+
+    <script>
+        // CONFIGURATION
+        const REPO_OWNER = "gnof-the-shark"; 
+        const REPO_NAME = "ipabuilder";
+        const TOTAL_STEPS = 9; 
+
+        async function buildApp() {
+            const url = document.getElementById('url').value;
+            const token = document.getElementById('token').value;
+            
+            if(!url || !token) return alert("Veuillez remplir l'URL et le Token.");
+
+            try {
+                const res = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/build.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'main', inputs: { pwa_url: url } })
+                });
+
+                if(res.ok) {
+                    alert("Build envoyé ! Actualisation dans 5 secondes...");
+                    setTimeout(fetchDetails, 5000);
+                } else {
+                    alert("Erreur GitHub : Vérifiez vos réglages.");
+                }
+            } catch(e) { alert("Erreur réseau."); }
+        }
+
+        async function fetchDetails() {
+            const token = document.getElementById('token').value;
+            if(!token) return;
+
+            try {
+                const resRuns = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/runs?per_page=3`, {
+                    headers: { 'Authorization': `token ${token}` }
+                });
+                const data = await resRuns.json();
+                const container = document.getElementById('builds-container');
+                container.innerHTML = "";
+
+                for (const run of data.workflow_runs) {
+                    const resJobs = await fetch(run.jobs_url, { headers: { 'Authorization': `token ${token}` } });
+                    const jobData = await resJobs.json();
+                    const job = jobData.jobs[0];
+                    
+                    const completedSteps = job ? job.steps.filter(s => s.status === "completed").length : 0;
+                    const percent = Math.round((completedSteps / TOTAL_STEPS) * 100);
+                    
+                    const startTime = new Date(run.run_started_at).getTime();
+                    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                    
+                    let timeText = "Initialisation...";
+                    if (run.status === "completed") {
+                        timeText = "Terminé !";
+                    } else if (completedSteps > 0) {
+                        const secPerStep = elapsedSec / completedSteps;
+                        const remainingSec = Math.round((TOTAL_STEPS - completedSteps) * secPerStep);
+                        const m = Math.floor(remainingSec / 60);
+                        const s = remainingSec % 60;
+                        timeText = `Reste environ ${m}m ${s}s`;
+                    }
+
+                    const item = document.createElement('div');
+                    item.className = `build-item ${run.status === 'completed' ? 'status-completed' : ''}`;
+                    item.innerHTML = `
+                        <div style="display:flex; justify-content:space-between">
+                            <strong>Build #${run.run_number}</strong>
+                            <span>${run.status}</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill" style="width: ${percent}%"></div></div>
+                        <div style="display:flex; justify-content:space-between; align-items:center">
+                            <span class="timer">${timeText}</span>
+                            <a href="${run.html_url}" target="_blank">Voir sur GitHub →</a>
+                        </div>
+                    `;
+                    container.appendChild(item);
+                }
+            } catch(e) { console.error("Erreur de mise à jour"); }
+        }
+
+        // Rafraîchir toutes les 5 secondes
+        setInterval(fetchDetails, 5000);
+    </script>
+</body>
+</html>
