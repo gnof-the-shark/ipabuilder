@@ -21,7 +21,7 @@ jobs:
           node-version: 20
 
       - name: 3. Installation de Capacitor
-        run: npm install @capacitor/core @capacitor/cli @capacitor/ios
+        run: npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/ios@6
 
       - name: 4. Initialisation du projet
         run: npx cap init "MonApp" com.monapp.pwa --web-dir www
@@ -32,7 +32,10 @@ jobs:
           echo "<script>window.location.href='${{ github.event.inputs.pwa_url }}';</script>" > www/index.html
 
       - name: 6. Ajout de la plateforme iOS
-        run: npx cap add ios
+        run: |
+          npx cap add ios || true
+          sed -i '' "s/platform :ios, '[0-9.]*'/platform :ios, '14.0'/" ios/App/Podfile
+          cd ios/App && pod install
 
       - name: 7. Synchronisation Capacitor
         run: npx cap sync ios
