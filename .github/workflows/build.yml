@@ -1,0 +1,57 @@
+name: Build IPA
+on:
+  workflow_dispatch:
+    inputs:
+      pwa_url:
+        description: 'URL de la PWA'
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 1. Checkout du code
+        uses: actions/checkout@v4
+
+      - name: 2. Installation de Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 3. Installation de Capacitor
+        run: npm install @capacitor/core @capacitor/cli @capacitor/ios
+
+      - name: 4. Initialisation du projet
+        run: npx cap init "MonApp" com.monapp.pwa --web-dir www
+
+      - name: 5. Injection de l'URL PWA
+        run: |
+          mkdir www
+          echo "<script>window.location.href='${{ github.event.inputs.pwa_url }}';</script>" > www/index.html
+
+      - name: 6. Ajout de la plateforme iOS
+        run: npx cap add ios
+
+      - name: 7. Synchronisation Capacitor
+        run: npx cap sync ios
+
+      - name: 8. Compilation de l'IPA (Non signé)
+        run: |
+          xcodebuild archive \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -archivePath App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_STYLE=Manual
+          
+          mkdir -p build/Payload
+          cp -r App.xcarchive/Products/Applications/App.app build/Payload/
+          cd build && zip -r ../app-unsigned.ipa Payload/
+
+      - name: 9. Téléchargement de l'IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned-ipa
+          path: app-unsigned.ipa
